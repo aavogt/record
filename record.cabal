@@ -63,7 +63,6 @@ library
   other-modules:
     Record.Parser
   exposed-modules:
-    Record.Types
     Record.Lens
     Record
   build-depends:
@@ -73,6 +72,8 @@ library
     text,
     --
     template-haskell,
+    --
+    HList,
     -- 
     transformers >= 0.2 && < 0.5,
     base-prelude >= 0.1 && < 0.2,

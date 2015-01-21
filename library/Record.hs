@@ -11,11 +11,11 @@ where
 import BasePrelude
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote
-import qualified Record.Types as Types
 import qualified Record.Lens as Lens
 import qualified Record.Parser as Parser
 import qualified Data.Text as T
 
+import Data.HList.CommonMain
 
 -- | A shorthand alias to 'record'.
 r :: QuasiQuoter
@@ -28,23 +28,23 @@ l = lens
 -- |
 -- A quasiquoter, which generates record expressions and types,
 -- depending on the context it's used in.
--- 
+--
 -- Here is how you can use it to declare types:
--- 
--- >type Person = 
+--
+-- >type Person =
 -- >  [record| {name :: String, birthday :: {year :: Int, month :: Int, day :: Int}} |]
--- 
+--
 -- To declare functions:
--- 
+--
 -- >getAge :: [record| {name :: String, age :: Int} |] -> Int
--- 
+--
 -- To declare values:
--- 
+--
 -- >person :: Person
 -- >person =
--- >  [record| {name = "Grigori Yakovlevich Perelman", 
+-- >  [record| {name = "Grigori Yakovlevich Perelman",
 -- >            birthday = {year = 1966, month = 6, day = 13}} |]
--- 
+--
 record :: QuasiQuoter
 record =
   QuasiQuoter
@@ -54,32 +54,32 @@ record =
     (const $ fail "Declaration context is not supported")
   where
     exp =
-      join . fmap (either fail return . renderExp) .
+      renderExp <=<
       either (fail . showString "Parser failure: ") return .
       Parser.run (Parser.qq Parser.exp) . fromString
     type' =
-      join . fmap (either fail return . renderType) .
+      renderType <=<
       either (fail . showString "Parser failure: ") return .
       Parser.run (Parser.qq Parser.type') . fromString
 
 -- |
 -- A quasiquoter, which generates a 'Lens.Lens'.
 -- Lens is your interface to accessing and modifying the fields of a record.
--- 
+--
 -- Here is how you can use it:
--- 
+--
 -- >getPersonBirthdayYear :: Person -> Int
 -- >getPersonBirthdayYear =
 -- >  Record.Lens.view ([lens|birthday|] . [lens|year|])
--- 
+--
 -- For your convenience you can compose lenses from inside of the quotation:
--- 
+--
 -- >setPersonBirthdayYear :: Int -> Person -> Person
 -- >setPersonBirthdayYear =
 -- >  Record.Lens.set [lens|birthday.year|]
--- 
+--
 -- You can also use this function to manipulate tuples of arity up to 24:
--- 
+--
 -- >mapThirdElement :: (Char -> Char) -> (Int, String, Char) -> (Int, String, Char)
 -- >mapThirdElement =
 -- >  Record.Lens.over [lens|3|]
@@ -92,125 +92,78 @@ lens =
     (const $ fail "Declaration context is not supported")
   where
     exp =
-      either (fail . showString "Parser failure: ") return .
-      fmap renderLens .
+      either (fail . showString "Parser failure: ") renderLens .
       Parser.run (Parser.qq Parser.lens) . fromString
 
-renderLens :: Parser.Lens -> Exp
+renderLens :: Parser.Lens -> ExpQ
 renderLens =
   foldl1 composition .
   fmap renderSingleLens
   where
-    composition a b = 
-      UInfixE a (VarE '(.)) b
+    composition a b = [| $a . $b |]
 
-renderSingleLens :: T.Text -> Exp
-renderSingleLens =
-  AppE (VarE 'Types.fieldLens) .
-  SigE (VarE 'undefined) .
-  AppT (ConT ''Types.FieldName) .
-  LitT . StrTyLit . T.unpack
+renderSingleLens :: T.Text -> ExpQ
+renderSingleLens s = [| hLens' (Label :: Label $(textLitT s)) |]
 
-renderRecordType :: Parser.RecordType -> Either String Type
-renderRecordType l =
-  checkDuplicateLabels >> getRecordTypeName >>= constructType
-  where
-    checkDuplicateLabels =
-      maybe (return ()) (Left . showString "Duplicate labels: " . show) $
-      mfilter (not . null) . Just $ 
-      map (fst . head) $
-      filter ((> 1) . length) $
-      groupWith fst l
-    getRecordTypeName =
-      maybe (Left (showString "Record arity " . shows arity . shows " is not supported" $ ""))
-            (Right) $
-      recordTypeNameByArity arity
-      where
-        arity = length l
-    constructType n =
-      foldl (\a (l, t) -> AppT <$> (AppT <$> a <*> pure (textLitT l)) <*> (renderType t))
-            (pure (ConT n))
-            (sortWith fst l)
-      where
-        textLitT =
-          LitT . StrTyLit . T.unpack
+renderRecordType :: Parser.RecordType -> TypeQ
+renderRecordType l = do
+  checkDuplicateLabels l
+  [t| Record $(makeHListTy l) |]
 
-recordTypeNameByArity :: Int -> Maybe Name
-recordTypeNameByArity arity =
-  fmap head $ mfilter (not . null) $ Just $
-  drop (pred arity) $
-  [
-    ''Types.Record1, ''Types.Record2, ''Types.Record3, ''Types.Record4, 
-    ''Types.Record5, ''Types.Record6, ''Types.Record7, ''Types.Record8, 
-    ''Types.Record9, ''Types.Record10, ''Types.Record11, ''Types.Record12,
-    ''Types.Record13, ''Types.Record14, ''Types.Record15, 
-    ''Types.Record16, ''Types.Record17, ''Types.Record18, ''Types.Record19, 
-    ''Types.Record20, ''Types.Record21, ''Types.Record22, 
-    ''Types.Record23, ''Types.Record24
-  ]
+makeHListTy :: [(T.Text, Parser.Type)] -> TypeQ
+makeHListTy =
+  foldr (\ (l,t) xs -> [t| Tagged $(textLitT l) $(renderType t) ': $xs |])
+         [t| '[] |]
 
-recordConNameByArity :: Int -> Maybe Name
-recordConNameByArity arity =
-  fmap head $ mfilter (not . null) $ Just $
-  drop (pred arity) $
-  [
-    'Types.Record1, 'Types.Record2, 'Types.Record3, 'Types.Record4, 
-    'Types.Record5, 'Types.Record6, 'Types.Record7, 'Types.Record8, 
-    'Types.Record9, 'Types.Record10, 'Types.Record11, 'Types.Record12, 
-    'Types.Record12, 'Types.Record13, 'Types.Record14, 'Types.Record15, 
-    'Types.Record16, 'Types.Record17, 'Types.Record18, 'Types.Record19, 
-    'Types.Record20, 'Types.Record21, 'Types.Record22, 'Types.Record22, 
-    'Types.Record23, 'Types.Record24
-  ]
+renderRecordExp :: [(T.Text, Parser.Exp)] -> ExpQ
+renderRecordExp l = do
+    checkDuplicateLabels l
+    [| Record $(makeHListExp l) |]
 
-renderType :: Parser.Type -> Either String Type
+checkDuplicateLabels :: (Show l, Ord l) => [(l,a)] -> Q ()
+checkDuplicateLabels l =
+  maybe (return ()) (fail . showString "Duplicate labels: " . show) $
+  mfilter (not . null) . Just $
+  map (fst . head) $
+  filter ((> 1) . length) $
+  groupWith fst l
+
+textLitT :: T.Text -> TypeQ
+textLitT =
+  litT . strTyLit . T.unpack
+
+makeHListExp :: [(T.Text, Parser.Exp)] -> ExpQ
+makeHListExp =
+    foldr ( \ (l, v) xs -> [| ((Label :: Label $(textLitT l))
+                                  .=. $(renderExp v)) `HCons` $xs |]
+            )
+          [| HNil |]
+     . sortWith fst
+
+
+renderType :: Parser.Type -> TypeQ
 renderType =
   \case
-    Parser.Type_App a b  -> AppT <$> renderType a <*> renderType b
-    Parser.Type_Var n    -> return $ VarT (mkName (T.unpack n))
-    Parser.Type_Con n    -> return $ ConT (mkName (T.unpack n))
-    Parser.Type_Tuple a  -> return $ TupleT a
-    Parser.Type_Arrow    -> return $ ArrowT
-    Parser.Type_List     -> return $ ListT
+    Parser.Type_App a b  -> [t| $(renderType a) $(renderType b) |]
+    Parser.Type_Var n    -> varT (mkName (T.unpack n))
+    Parser.Type_Con n    -> conT (mkName (T.unpack n))
+    Parser.Type_Tuple a  -> tupleT a
+    Parser.Type_Arrow    -> arrowT
+    Parser.Type_List     -> listT
     Parser.Type_Record a -> renderRecordType a
 
-renderExp :: Parser.Exp -> Either String Exp
+renderExp :: Parser.Exp -> ExpQ
 renderExp =
   \case
     Parser.Exp_Record r   -> renderRecordExp r
-    Parser.Exp_Var n      -> return $ VarE (mkName (T.unpack n))
-    Parser.Exp_Con n      -> return $ ConE (mkName (T.unpack n))
-    Parser.Exp_TupleCon a -> return $ ConE (tupleDataName a)
-    Parser.Exp_Nil        -> return $ ConE ('[])
-    Parser.Exp_Lit l      -> return $ LitE (renderLit l)
-    Parser.Exp_App a b    -> AppE <$> renderExp a <*> renderExp b
-    Parser.Exp_List l     -> ListE <$> traverse renderExp l
-    Parser.Exp_Sig e t    -> SigE <$> renderExp e <*> renderType t
-
-renderRecordExp :: Parser.RecordExp -> Either String Exp
-renderRecordExp l =
-  checkDuplicateLabels >> getConLambda >>= constructExp
-  where
-    checkDuplicateLabels =
-      maybe (return ()) (Left . showString "Duplicate labels: " . show) $
-      mfilter (not . null) . Just $ 
-      map (fst . head) $
-      filter ((> 1) . length) $
-      groupWith fst l
-    getConLambda =
-      maybe (Left (showString "Record arity " . shows arity . shows " is not supported" $ ""))
-            (Right) $
-      conLambdaExp arity
-      where
-        arity = length l
-    constructExp lam =
-      foldl (\a (n, e) -> AppE <$> (AppE <$> a <*> pure (proxy n)) <*> renderExp e)
-            (pure lam)
-            (sortWith fst l)
-      where
-        proxy n =
-          SigE (VarE 'undefined) 
-               (AppT (ConT ''Types.FieldName) (LitT (StrTyLit (T.unpack n))))
+    Parser.Exp_Var n      -> dyn (T.unpack n)
+    Parser.Exp_Con n      -> conE (mkName (T.unpack n))
+    Parser.Exp_TupleCon a -> conE (tupleDataName a)
+    Parser.Exp_Nil        -> [| [] |]
+    Parser.Exp_Lit l      -> litE (renderLit l)
+    Parser.Exp_App a b    -> [| $(renderExp a) $(renderExp b) |]
+    Parser.Exp_List l     -> listE (renderExp <$> l)
+    Parser.Exp_Sig e t    -> sigE (renderExp e) (renderType t)
 
 renderLit :: Parser.Lit -> Lit
 renderLit =
@@ -219,50 +172,4 @@ renderLit =
     Parser.Lit_String t -> StringL (T.unpack t)
     Parser.Lit_Integer i -> IntegerL i
     Parser.Lit_Rational r -> RationalL r
-
--- |
--- Allows to specify names in types signatures,
--- leaving the value type resolution to the compiler.
--- 
--- E.g.,
--- 
--- >(\_ v1 _ v2 -> Record2 v1 v2) :: Types.FieldName n1 -> v1 -> Types.FieldName n2 -> v2 -> Record2 n1 v1 n2 v2
--- 
--- We can set the name signatures by passing
--- proxies with explicit signatures to this lambda.
-conLambdaExp :: Int -> Maybe Exp
-conLambdaExp arity =
-  SigE <$> exp <*> t
-  where
-    exp =
-      LamE <$> pure pats <*> exp
-      where
-        pats =
-          concat $ flip map [1 .. arity] $ \i -> [WildP, VarP (mkName ("v" <> show i))]
-        exp =
-          foldl AppE <$> (ConE <$> recordConNameByArity arity) <*> 
-                         pure (map (\i -> VarE (mkName ("v" <> show i))) [1 .. arity])
-    t =
-      fnType <$> recordTypeNameByArity arity
-      where
-        fnType conName =
-          ForallT varBndrs [] $
-          foldr1 (\l r -> AppT (AppT ArrowT l) r)
-                 (argTypes <> pure (resultType conName))
-        varBndrs =
-          concat $ flip map [1 .. arity] $ \i ->
-            PlainTV (mkName ("n" <> show i)) :
-            PlainTV (mkName ("v" <> show i)) :
-            []
-        argTypes =
-          concat $ flip map [1 .. arity] $ \i -> 
-            AppT (ConT ''Types.FieldName) (VarT (mkName ("n" <> show i))) :
-            VarT (mkName ("v" <> show i)) :
-            []
-        resultType conName =
-          foldl AppT (ConT conName) $ concat $ flip map [1 .. arity] $ \i ->
-            VarT (mkName ("n" <> show i)) :
-            VarT (mkName ("v" <> show i)) :
-            []
-
 
