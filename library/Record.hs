@@ -5,6 +5,8 @@ module Record
   -- ** Shorthands
   r,
   l,
+
+  Append(..),
 )
 where
 
@@ -16,6 +18,7 @@ import qualified Record.Lens as Lens
 import qualified Record.Parser as Parser
 import qualified Data.Text as T
 
+import Record.Append
 
 -- | A shorthand alias to 'record'.
 r :: QuasiQuoter
