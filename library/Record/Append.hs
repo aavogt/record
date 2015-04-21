@@ -14,11 +14,6 @@ import Data.HList.HSort
 import Data.List (sort)
 import Record.Lens (view, Lens)
 
-type HSort a b = (-- don't bother checking for already-sorted lists
-                  -- (would be True)
-                  HSortBy1 False HLeFn a b,
-                  SameLength a b,
-                  HIsSet b True)
 
 {- |
 
