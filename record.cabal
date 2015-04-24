@@ -78,6 +78,7 @@ library
     base-prelude >= 0.1 && < 0.2,
     base >= 4.6 && < 4.9
 
+  cpp-options: -DNMAX=8
 
 test-suite doctest
   type:

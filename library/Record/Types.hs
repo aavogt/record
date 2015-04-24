@@ -27,7 +27,7 @@ import Foreign.Ptr (plusPtr)
 -- Defines a lens to manipulate some value of a type by a type-level name,
 -- using the string type literal functionality.
 --
--- Instances are provided for all records and for tuples of arity of up to 24.
+-- Instances are provided for all records and for tuples of arity of up to 24 (NMAX).
 --
 -- Here's how you can use it with tuples:
 --
@@ -59,7 +59,7 @@ data FieldName (t :: Symbol)
 -------------------------
 
 -- Generate Record types
-return $ flip map [1 .. 24] $ \arity ->
+return $ flip map [1 .. NMAX] $ \arity ->
   let
     typeName =
       mkName $ "Record" <> show arity
@@ -85,7 +85,7 @@ return $ flip map [1 .. 24] $ \arity ->
 
 
 -- Generate instances of Foreign.Storable
-return $ flip map [1 .. 24] $ \arity ->
+return $ flip map [1 .. NMAX] $ \arity ->
   let
     typeName = mkName $ "Record" <> show arity
     recordType =
@@ -153,7 +153,7 @@ return $ flip map [1 .. 24] $ \arity ->
 -------------------------
 
 return $ do
-  arity <- [1 .. 24]
+  arity <- [1 .. NMAX]
   nIndex <- [1 .. arity]
   return $
     let
@@ -216,7 +216,7 @@ instance Field "1" (Identity v1) (Identity v1') v1 v1' where
 
 -- Generate Field instances for tuples
 return $ do
-  arity <- [2 .. 24]
+  arity <- [2 .. NMAX]
   nIndex <- [1 .. arity]
   return $
     let
